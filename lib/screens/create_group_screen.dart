@@ -1,29 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/database_service.dart';
 import 'wishlists_screen.dart';
 
-class JoinGroupScreen extends StatefulWidget {
-  const JoinGroupScreen({super.key});
+class CreateGroupScreen extends StatefulWidget {
+  const CreateGroupScreen({super.key});
 
   @override
-  State<JoinGroupScreen> createState() => _JoinGroupScreenState();
+  State<CreateGroupScreen> createState() => _CreateGroupScreenState();
 }
 
-class _JoinGroupScreenState extends State<JoinGroupScreen> {
+class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _codeController = TextEditingController();
-  final TextEditingController _birthdateController = TextEditingController();
   final DatabaseService _databaseService = DatabaseService();
   bool _isLoading = false;
 
-  Future<void> _joinGroup() async {
-    final name = _nameController.text.trim();
-    final code = _codeController.text.trim().toUpperCase();
-
-    if (name.isEmpty || code.isEmpty) {
+  Future<void> _createGroup() async {
+    final groupName = _nameController.text.trim();
+    if (groupName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your Name and a Group Code.')),
+        const SnackBar(content: Text('Please enter a group name')),
       );
       return;
     }
@@ -33,29 +30,30 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     });
 
     try {
-      final result = await _databaseService.joinGroupAsGuest(code, name);
-      
-      if (result != null) {
-        final groupId = result['groupId']!;
-        final memberId = result['memberId']!;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('You must be logged in to create a group.');
 
-        // Save anonymous session data locally so the user is remembered next time
+      // Create the group and get the new group ID
+      final groupId = await _databaseService.createGroup(groupName, user);
+      
+      if (groupId != null) {
+        // Save the active context to local storage so the WishlistsScreen knows what to load
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('activeGroupId', groupId);
-        await prefs.setString('activeMemberId', memberId);
-        await prefs.setBool('isOwner', false);
+        await prefs.setString('activeMemberId', user.uid); // The owner's member ID is their UID
+        await prefs.setBool('isOwner', true);
 
         if (mounted) {
           Navigator.pushAndRemoveUntil(
             context,
             MaterialPageRoute(
-              builder: (context) => const WishlistsScreen(isOwner: false),
+              builder: (context) => const WishlistsScreen(isOwner: true),
             ),
             (route) => false,
           );
         }
       } else {
-        throw Exception('Could not join group. Please check the code and try again.');
+        throw Exception('Failed to create group');
       }
     } catch (e) {
       if (mounted) {
@@ -75,8 +73,6 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _codeController.dispose();
-    _birthdateController.dispose();
     super.dispose();
   }
 
@@ -85,23 +81,31 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FB),
       appBar: AppBar(
-        title: const Text('Join a Group'),
+        title: const Text('Create a Group'),
         backgroundColor: const Color(0xFFF6F8FB),
         elevation: 0,
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 40),
               const Text(
-                'Join Your Group',
+                'Let\'s get started',
                 style: TextStyle(
                   fontSize: 32,
                   fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Give your new wish group a name so your family and friends can find it.',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -109,8 +113,8 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
               TextField(
                 controller: _nameController,
                 decoration: InputDecoration(
-                  labelText: 'Your Name',
-                  hintText: 'e.g., Grandma',
+                  labelText: 'Group Name',
+                  hintText: 'e.g., Family Christmas 2026',
                   filled: true,
                   fillColor: Colors.white,
                   border: OutlineInputBorder(
@@ -120,41 +124,11 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
                 ),
                 textCapitalization: TextCapitalization.words,
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _codeController,
-                decoration: InputDecoration(
-                  labelText: 'Group Code',
-                  hintText: 'e.g., A1B2C3',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                textCapitalization: TextCapitalization.characters,
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _birthdateController,
-                decoration: InputDecoration(
-                  labelText: 'Birthdate (MM/DD/YYYY)',
-                  hintText: 'Optional',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                keyboardType: TextInputType.datetime,
-              ),
               const SizedBox(height: 40),
               _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : ElevatedButton(
-                      onPressed: _joinGroup,
+                      onPressed: _createGroup,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF5D5FEF),
                         padding: const EdgeInsets.symmetric(vertical: 20),
@@ -164,7 +138,7 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
                         elevation: 0,
                       ),
                       child: const Text(
-                        'Join Group',
+                        'Create Group',
                         style: TextStyle(
                           fontSize: 18,
                           color: Colors.white,

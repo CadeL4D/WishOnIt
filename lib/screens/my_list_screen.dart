@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 import '../models/my_list_item.dart';
+import '../services/database_service.dart';
 
 class MyListScreen extends StatefulWidget {
   const MyListScreen({super.key});
@@ -14,42 +16,40 @@ class MyListScreen extends StatefulWidget {
 }
 
 class _MyListScreenState extends State<MyListScreen> {
-  List<MyListItem> _items = [];
+  final DatabaseService _databaseService = DatabaseService();
+  String? _groupId;
+  String? _memberId;
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadItems();
+    _loadSessionInfo();
   }
 
-  Future<void> _loadItems() async {
+  Future<void> _loadSessionInfo() async {
     final prefs = await SharedPreferences.getInstance();
-    final itemsJson = prefs.getStringList('my_list_items') ?? [];
     setState(() {
-      _items = itemsJson.map((jsonStr) => MyListItem.fromJson(jsonDecode(jsonStr))).toList();
+      _groupId = prefs.getString('activeGroupId');
+      _memberId = prefs.getString('activeMemberId');
       _isLoading = false;
     });
   }
 
-  Future<void> _saveItems() async {
-    final prefs = await SharedPreferences.getInstance();
-    final itemsJson = _items.map((item) => jsonEncode(item.toJson())).toList();
-    await prefs.setStringList('my_list_items', itemsJson);
+  Future<void> _addItem(MyListItem item) async {
+    if (_groupId != null && _memberId != null) {
+      await _databaseService.addWishlistItem(_groupId!, _memberId!, item);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: No active group found.')),
+      );
+    }
   }
 
-  void _addItem(MyListItem item) {
-    setState(() {
-      _items.add(item);
-    });
-    _saveItems();
-  }
-
-  void _deleteItem(String id) {
-    setState(() {
-      _items.removeWhere((item) => item.id == id);
-    });
-    _saveItems();
+  Future<void> _deleteItem(String id) async {
+    if (_groupId != null && _memberId != null) {
+      await _databaseService.deleteWishlistItem(_groupId!, _memberId!, id);
+    }
   }
 
   void _showAddItemDialog(BuildContext context) {
@@ -88,62 +88,84 @@ class _MyListScreenState extends State<MyListScreen> {
         backgroundColor: const Color(0xFFF6F8FB),
         elevation: 0,
       ),
-      body: _isLoading 
-        ? const Center(child: CircularProgressIndicator())
-        : _items.isEmpty 
-          ? const Center(
-              child: Text(
-                'My Personal Saved Items',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.grey,
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : (_groupId == null || _memberId == null)
+              ? const Center(
+                  child: Text('No active group joined.'),
+                )
+              : StreamBuilder<QuerySnapshot>(
+                  stream: _databaseService.getMemberWishlistStream(_groupId!, _memberId!),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('Error loading wishlist: ${snapshot.error}'));
+                    }
+                    if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                      return const Center(
+                        child: Text(
+                          'My Personal Saved Items',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 20,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      );
+                    }
+
+                    final items = snapshot.data!.docs.map((doc) {
+                      return MyListItem.fromJson(doc.data() as Map<String, dynamic>);
+                    }).toList();
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 100),
+                      itemCount: items.length,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        final domain = item.domain ?? '';
+                        final logoUrl = _getLogoUrl(domain);
+
+                        return Card(
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: ListTile(
+                            leading: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.grey[200],
+                                border: Border.all(color: Colors.grey[300]!),
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: domain.isNotEmpty && logoUrl != null
+                                  ? logoUrl.endsWith('.svg')
+                                      ? SvgPicture.network(
+                                          logoUrl,
+                                          fit: BoxFit.contain,
+                                        )
+                                      : Image.network(
+                                          logoUrl,
+                                          fit: BoxFit.contain,
+                                          errorBuilder: (context, error, stackTrace) =>
+                                              const Icon(Icons.link, color: Colors.grey),
+                                        )
+                                  : const Icon(Icons.link, color: Colors.grey),
+                            ),
+                            title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
+                            subtitle: Text('\$${item.price.toStringAsFixed(2)}'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              onPressed: () => _deleteItem(item.id),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.only(bottom: 100),
-              itemCount: _items.length,
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                final domain = item.domain ?? '';
-                final logoUrl = _getLogoUrl(domain);
-                
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: ListTile(
-                    leading: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.grey[200],
-                        border: Border.all(color: Colors.grey[300]!),
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: domain.isNotEmpty && logoUrl != null
-                          ? logoUrl.endsWith('.svg')
-                              ? SvgPicture.network(
-                                  logoUrl,
-                                  fit: BoxFit.contain,
-                                )
-                              : Image.network(
-                                  logoUrl,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) => const Icon(Icons.link, color: Colors.grey),
-                                )
-                          : const Icon(Icons.link, color: Colors.grey),
-                    ),
-                    title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('\$${item.price.toStringAsFixed(2)}'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () => _deleteItem(item.id),
-                    ),
-                  ),
-                );
-              },
-            ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showAddItemDialog(context),

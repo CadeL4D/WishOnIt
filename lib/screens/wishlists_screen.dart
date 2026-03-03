@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/category.dart';
 import '../models/person.dart';
 import '../models/my_list_item.dart';
 import '../widgets/person_card.dart';
+import '../services/database_service.dart';
 import 'person_wishlist_screen.dart';
 import 'group_settings_screen.dart';
 import 'my_list_screen.dart';
@@ -17,34 +20,27 @@ class WishlistsScreen extends StatefulWidget {
 }
 
 class _WishlistsScreenState extends State<WishlistsScreen> {
+  final DatabaseService _databaseService = DatabaseService();
   int _selectedIndex = 0;
   int _selectedTopTab = 0;
+  String? _groupId;
+  String? _myMemberId;
+  bool _isLoading = true;
 
-  final List<Person> groupMembers = [
-    Person(
-      id: '1',
-      name: 'Sarah (Me)',
-      avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=200&auto=format&fit=crop',
-      wishlist: [], // Usually fetched from the local prefs or DB
-    ),
-    Person(
-      id: '2',
-      name: 'John Doe',
-      avatarUrl: 'https://images.unsplash.com/photo-1599566150163-29194dcaad36?q=80&w=200&auto=format&fit=crop',
-      wishlist: [
-        MyListItem(id: 'a', name: 'AirPods Pro', price: 249.0, url: 'https://apple.com', domain: 'apple.com'),
-        MyListItem(id: 'b', name: 'Standing Desk', price: 399.0, url: 'https://ikea.com', domain: 'ikea.com'),
-      ],
-    ),
-    Person(
-      id: '3',
-      name: 'Alice',
-      avatarUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?q=80&w=200&auto=format&fit=crop',
-      wishlist: [
-        MyListItem(id: 'c', name: 'Kindle Paperwhite', price: 139.0, url: 'https://amazon.com', domain: 'amazon.com'),
-      ],
-    ),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadGroupSession();
+  }
+
+  Future<void> _loadGroupSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _groupId = prefs.getString('activeGroupId');
+      _myMemberId = prefs.getString('activeMemberId');
+      _isLoading = false;
+    });
+  }
 
   final List<Category> categories = [
     Category(
@@ -71,6 +67,12 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     // Determine the active pages based on role
     final List<Widget> pages = [
       _buildWishlistsContent(),
@@ -138,10 +140,46 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // Top App Bar Area
-              const Row(
+              Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Icon(Icons.menu, size: 30),
+                  const Icon(Icons.menu, size: 30),
+                  if (_groupId != null)
+                    StreamBuilder<DocumentSnapshot>(
+                      stream: _databaseService.getGroupStream(_groupId!),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData || !snapshot.data!.exists) {
+                          return const SizedBox.shrink();
+                        }
+                        
+                        final data = snapshot.data!.data() as Map<String, dynamic>?;
+                        final joinCode = data?['joinCode'] ?? '';
+                        
+                        if (joinCode.isEmpty) return const SizedBox.shrink();
+
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF5D5FEF).withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.group, size: 16, color: Color(0xFF5D5FEF)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Code: $joinCode',
+                                style: const TextStyle(
+                                  color: Color(0xFF5D5FEF),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
                 ],
               ),
               const SizedBox(height: 30),
@@ -165,28 +203,55 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              // Horizontal ListView
+              // Horizontal ListView wrapping a StreamBuilder
               SizedBox(
                 height: 200,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: groupMembers.length,
-                  itemBuilder: (context, index) {
-                    return PersonCard(
-                      person: groupMembers[index],
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => PersonWishlistScreen(
-                              person: groupMembers[index],
-                            ),
-                          ),
+                child: _groupId == null 
+                  ? const Center(child: Text("No Group Found. Join or Create a group first."))
+                  : StreamBuilder<QuerySnapshot>(
+                      stream: _databaseService.getGroupMembersStream(_groupId!),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(child: CircularProgressIndicator());
+                        }
+                        if (snapshot.hasError) {
+                          return Center(child: Text("Error: ${snapshot.error}"));
+                        }
+                        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                          return const Center(child: Text("No members in this group."));
+                        }
+
+                        final members = snapshot.data!.docs.map((doc) {
+                          final data = doc.data() as Map<String, dynamic>;
+                          return Person(
+                            id: doc.id,
+                            name: doc.id == _myMemberId ? "${data['name']} (Me)" : data['name'] ?? 'Unknown',
+                            avatarUrl: data['avatarUrl'],
+                            wishlist: [], // Will fetch individually in PersonWishlistScreen
+                          );
+                        }).toList();
+
+                        return ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: members.length,
+                          itemBuilder: (context, index) {
+                            return PersonCard(
+                              person: members[index],
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => PersonWishlistScreen(
+                                      person: members[index],
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
                         );
                       },
-                    );
-                  },
-                ),
+                    ),
               ),
               const SizedBox(height: 30),
               // Upcoming section

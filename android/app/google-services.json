@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "235851995201",
+    "project_id": "wishonit-33f0a",
+    "storage_bucket": "wishonit-33f0a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:235851995201:android:275a96ad5cc774872d8ec0",
+        "android_client_info": {
+          "package_name": "com.example.wishonit"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "235851995201-4l77msboel49pv59u04fd0poj3lu38c3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBEH8LVKMlbn8mFM84O7evT_lKb-iG74L4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "235851995201-4l77msboel49pv59u04fd0poj3lu38c3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
