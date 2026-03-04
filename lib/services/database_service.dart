@@ -39,6 +39,7 @@ class DatabaseService {
         'ownerUid': owner.uid,
         'joinCode': joinCode,
         'createdAt': FieldValue.serverTimestamp(),
+        'memberIds': [owner.uid], // Array to allow easy querying of what groups a user is in
       });
       
       // 2. Add the Owner as the first Member in the subcollection
@@ -59,7 +60,7 @@ class DatabaseService {
 
   // Join a Group anonymously using a Join Code
   // Returns a map with groupId and the newly created memberId, or null if failed
-  Future<Map<String, String>?> joinGroupAsGuest(String joinCode, String guestName) async {
+  Future<Map<String, String>?> joinGroupAsGuest(String joinCode, String guestName, {String? birthdate, String? pin}) async {
     try {
       // 1. Find the group by code
       final querySnapshot = await _firestore
@@ -78,6 +79,8 @@ class DatabaseService {
       // 2. Create the Guest Member profile
       final memberRef = await groupRef.collection('members').add({
         'name': guestName,
+        'birthdate': birthdate ?? '',
+        'pin': pin ?? '',
         'avatarUrl': '', // Guests have no default avatar
         'isRegisteredOwner': false,
         'joinedAt': FieldValue.serverTimestamp(),
@@ -85,6 +88,11 @@ class DatabaseService {
       
       // We must explicitly set the ID field inside the document to make it easier to parse later
       await memberRef.update({'id': memberRef.id});
+
+      // 3. Update the Group Document to include this new member in the queryable array
+      await groupRef.update({
+        'memberIds': FieldValue.arrayUnion([memberRef.id]),
+      });
 
       return {
         'groupId': groupId,
@@ -101,6 +109,42 @@ class DatabaseService {
     return _firestore.collection('groups').doc(groupId).snapshots();
   }
 
+  // Look up a group by its Join Code directly, returning the DocumentSnapshot if found
+  Future<DocumentSnapshot?> getGroupByCode(String code) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('groups')
+          .where('joinCode', isEqualTo: code.toUpperCase())
+          .limit(1)
+          .get();
+      
+      if (querySnapshot.docs.isNotEmpty) {
+        return querySnapshot.docs.first;
+      }
+      return null;
+    } catch (e) {
+      print('Error getting group by code: $e');
+      return null;
+    }
+  }
+
+  // Claim an existing anonymous profile in a group and link it to a logged-in User
+  Future<void> claimExistingMember(String groupId, String memberId, String userId) async {
+    try {
+      final groupRef = _firestore.collection('groups').doc(groupId);
+      
+      // Update top-level memberIds array so it shows up in their dashboard
+      await groupRef.update({
+        'memberIds': FieldValue.arrayUnion([userId]),
+      });
+      // Optionally update the member sub-doc to indicate it has been claimed by this user
+      // We will skip full deep-registration logic for now and just link the dashboard access
+    } catch (e) {
+      print('Error claiming member: $e');
+      throw e;
+    }
+  }
+
   // Fetch all members of a specific group as a Stream
   Stream<QuerySnapshot> getGroupMembersStream(String groupId) {
     return _firestore
@@ -108,6 +152,15 @@ class DatabaseService {
         .doc(groupId)
         .collection('members')
         .orderBy('joinedAt', descending: false)
+        .snapshots();
+  }
+
+  // Fetch all groups that a specific user is a member of
+  Stream<QuerySnapshot> getUserGroupsStream(String userId) {
+    return _firestore
+        .collection('groups')
+        .where('memberIds', arrayContains: userId)
+        .orderBy('createdAt', descending: true)
         .snapshots();
   }
 

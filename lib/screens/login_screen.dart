@@ -26,12 +26,16 @@ class LoginScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 60),
-              Row(
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 20,
+                runSpacing: 20,
                 children: [
-                  Expanded(
+                  SizedBox(
+                    width: 150,
                     child: _buildRoleCard(
                       context,
-                      title: 'Make a\nnew group',
+                      title: 'Sign In',
                       icon: Icons.add_circle_outline,
                       color: const Color(0xFF5D5FEF),
                       onTap: () {
@@ -44,11 +48,11 @@ class LoginScreen extends StatelessWidget {
                       },
                     ),
                   ),
-                  const SizedBox(width: 20),
-                  Expanded(
+                  SizedBox(
+                    width: 150,
                     child: _buildRoleCard(
                       context,
-                      title: 'Join a\ngroup',
+                      title: 'Join a Group',
                       icon: Icons.group_add_outlined,
                       color: const Color(0xFF00C48C),
                       onTap: () {
@@ -57,6 +61,20 @@ class LoginScreen extends StatelessWidget {
                           MaterialPageRoute(
                             builder: (context) => const JoinGroupScreen(),
                           ),
+                        );
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 150,
+                    child: _buildRoleCard(
+                      context,
+                      title: 'Continue as Guest',
+                      icon: Icons.person_outline,
+                      color: const Color(0xFFF2994A), // Orange color
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Guest mode not implemented yet')),
                         );
                       },
                     ),

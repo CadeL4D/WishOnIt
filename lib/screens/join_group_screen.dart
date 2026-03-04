@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/database_service.dart';
 import 'wishlists_screen.dart';
@@ -12,18 +14,33 @@ class JoinGroupScreen extends StatefulWidget {
 
 class _JoinGroupScreenState extends State<JoinGroupScreen> {
   final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _codeController = TextEditingController();
   final TextEditingController _birthdateController = TextEditingController();
+  final TextEditingController _pinController = TextEditingController();
+  final TextEditingController _codeController = TextEditingController();
   final DatabaseService _databaseService = DatabaseService();
+  
   bool _isLoading = false;
+  bool _stepTwo = false;
+  
+  // Group data fetched in Step 1
+  String? _foundGroupId;
+  String? _foundGroupName;
+  
+  // User auth details
+  String? _currentUserId;
 
-  Future<void> _joinGroup() async {
-    final name = _nameController.text.trim();
+  @override
+  void initState() {
+    super.initState();
+    _currentUserId = FirebaseAuth.instance.currentUser?.uid;
+  }
+
+  Future<void> _findGroup() async {
     final code = _codeController.text.trim().toUpperCase();
 
-    if (name.isEmpty || code.isEmpty) {
+    if (code.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your Name and a Group Code.')),
+        const SnackBar(content: Text('Please enter a Group Code.')),
       );
       return;
     }
@@ -33,34 +50,23 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     });
 
     try {
-      final result = await _databaseService.joinGroupAsGuest(code, name);
-      
-      if (result != null) {
-        final groupId = result['groupId']!;
-        final memberId = result['memberId']!;
-
-        // Save anonymous session data locally so the user is remembered next time
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('activeGroupId', groupId);
-        await prefs.setString('activeMemberId', memberId);
-        await prefs.setBool('isOwner', false);
-
-        if (mounted) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const WishlistsScreen(isOwner: false),
-            ),
-            (route) => false,
-          );
-        }
+      final groupDoc = await _databaseService.getGroupByCode(code);
+      if (groupDoc != null) {
+        final data = groupDoc.data() as Map<String, dynamic>;
+        setState(() {
+          _foundGroupId = groupDoc.id;
+          _foundGroupName = data['name'];
+          _stepTwo = true;
+        });
       } else {
-        throw Exception('Could not join group. Please check the code and try again.');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Invalid group code. Please try again.')),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(content: Text('Error finding group: $e')),
         );
       }
     } finally {
@@ -72,11 +78,107 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     }
   }
 
+  Future<void> _claimMember(String memberId) async {
+    if (_foundGroupId == null || _currentUserId == null) {
+      // If the user isn't logged in, they can't claim a profile right now (or they can just use this device session anonymously)
+      // For simplicity in this flow, we will link the local session regardless.
+      _completeJoinFlow(_foundGroupId!, memberId);
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _databaseService.claimExistingMember(_foundGroupId!, memberId, _currentUserId!);
+      _completeJoinFlow(_foundGroupId!, memberId);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error claiming profile: $e')),
+        );
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _joinAsNewGuest() async {
+    final name = _nameController.text.trim();
+    final pin = _pinController.text.trim();
+    final birthdate = _birthdateController.text.trim();
+
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a name for your new profile.')),
+      );
+      return;
+    }
+    
+    if (pin.length != 4 || int.tryParse(pin) == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a 4-digit PIN.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // The DatabaseService currently expects both code and name to create the guest profile.
+      final result = await _databaseService.joinGroupAsGuest(
+        _codeController.text.trim(), 
+        name,
+        birthdate: birthdate,
+        pin: pin,
+      );
+      if (result != null) {
+        // If the current user is logged in, we also want to add their UID to the group's memberIds array so it shows on dashboard.
+        if (_currentUserId != null) {
+          await _databaseService.claimExistingMember(result['groupId']!, result['memberId']!, _currentUserId!);
+        }
+        _completeJoinFlow(result['groupId']!, result['memberId']!);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error creating guest profile: $e')),
+        );
+      }
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _completeJoinFlow(String groupId, String memberId) async {
+    // Save active session data locally
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('activeGroupId', groupId);
+    await prefs.setString('activeMemberId', memberId);
+    await prefs.setBool('isOwner', false);
+
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const WishlistsScreen(isOwner: false),
+        ),
+        (route) => false,
+      );
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
-    _codeController.dispose();
     _birthdateController.dispose();
+    _pinController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
 
@@ -85,34 +187,197 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F8FB),
       appBar: AppBar(
-        title: const Text('Join a Group'),
-        backgroundColor: const Color(0xFFF6F8FB),
+        title: Text(_stepTwo ? 'Join ${_foundGroupName ?? 'Group'}' : 'Find a Group'),
+        backgroundColor: Colors.white,
         elevation: 0,
+        leading: _stepTwo && !_isLoading
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.black87),
+                onPressed: () {
+                  setState(() {
+                    _stepTwo = false;
+                    _foundGroupId = null;
+                    _foundGroupName = null;
+                  });
+                },
+              )
+            : const BackButton(color: Colors.black87),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+        child: _stepTwo ? _buildStepTwo() : _buildStepOne(),
+      ),
+    );
+  }
+
+  Widget _buildStepOne() {
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Icon(
+            Icons.search,
+            size: 80,
+            color: Color(0xFF5D5FEF),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Enter Group Code',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Ask the group owner for their 6-character code.',
+            style: TextStyle(
+              fontSize: 16,
+              color: Colors.grey.shade600,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 40),
+          TextField(
+            controller: _codeController,
+            decoration: InputDecoration(
+              labelText: 'Group Code',
+              hintText: 'e.g., A1B2C3',
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(15),
+                borderSide: BorderSide.none,
+              ),
+            ),
+            textCapitalization: TextCapitalization.characters,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 24, letterSpacing: 8, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 32),
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : ElevatedButton(
+                  onPressed: _findGroup,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5D5FEF),
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Find Group',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepTwo() {
+    return Column(
+      children: [
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _databaseService.getGroupMembersStream(_foundGroupId!),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: ${snapshot.error}'));
+              }
+
+              final allMembers = snapshot.data?.docs ?? [];
+              // Filter out the registered owner so they cannot be claimed
+              final members = allMembers.where((doc) {
+                final data = doc.data() as Map<String, dynamic>;
+                return data['isRegisteredOwner'] != true;
+              }).toList();
+              
+              if (members.isEmpty) {
+                return const Center(child: Text('No members found yet.'));
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(24),
+                itemCount: members.length + 1, // Add 1 for the title
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                     return const Padding(
+                       padding: EdgeInsets.only(bottom: 16.0),
+                       child: Text(
+                         'Claim an existing profile:',
+                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                       ),
+                     );
+                  }
+
+                  final doc = members[index - 1];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final name = data['name'] ?? 'Unknown Member';
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: const Color(0xFF5D5FEF).withAlpha((0.1 * 255).toInt()),
+                        child: Text(
+                          name.isNotEmpty ? name[0].toUpperCase() : '?',
+                          style: const TextStyle(color: Color(0xFF5D5FEF), fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                      onTap: _isLoading ? null : () => _claimMember(doc.id),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        // Create New Member Section
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha((0.05 * 255).toInt()),
+                blurRadius: 10,
+                offset: const Offset(0, -5),
+              ),
+            ],
+          ),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const SizedBox(height: 40),
               const Text(
-                'Join Your Group',
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
+                'Or create a new guest profile:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 12),
               TextField(
                 controller: _nameController,
                 decoration: InputDecoration(
                   labelText: 'Your Name',
-                  hintText: 'e.g., Grandma',
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: const Color(0xFFF6F8FB),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(15),
                     borderSide: BorderSide.none,
@@ -120,29 +385,14 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
                 ),
                 textCapitalization: TextCapitalization.words,
               ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _codeController,
-                decoration: InputDecoration(
-                  labelText: 'Group Code',
-                  hintText: 'e.g., A1B2C3',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(15),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                textCapitalization: TextCapitalization.characters,
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               TextField(
                 controller: _birthdateController,
                 decoration: InputDecoration(
-                  labelText: 'Birthdate (MM/DD/YYYY)',
-                  hintText: 'Optional',
+                  labelText: 'Birthdate (Optional)',
+                  hintText: 'MM/DD/YYYY',
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: const Color(0xFFF6F8FB),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(15),
                     borderSide: BorderSide.none,
@@ -150,32 +400,50 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
                 ),
                 keyboardType: TextInputType.datetime,
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _pinController,
+                decoration: InputDecoration(
+                  labelText: 'Create 4-Digit PIN',
+                  filled: true,
+                  fillColor: const Color(0xFFF6F8FB),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: BorderSide.none,
+                  ),
+                  counterText: '',
+                ),
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                obscureText: true,
+              ),
+              const SizedBox(height: 16),
               _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ElevatedButton(
-                      onPressed: _joinGroup,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF5D5FEF),
-                        padding: const EdgeInsets.symmetric(vertical: 20),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Join Group',
-                        style: TextStyle(
-                          fontSize: 18,
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                ? const Center(child: CircularProgressIndicator())
+                : ElevatedButton(
+                  onPressed: _joinAsNewGuest,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00C48C),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
                     ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Join as New Member',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 }
+

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'wishlists_screen.dart';
+import 'dashboard_screen.dart';
 
 class RegisterScreen extends StatelessWidget {
   const RegisterScreen({super.key});
@@ -97,7 +97,7 @@ class RegisterScreen extends StatelessWidget {
                   Navigator.pushAndRemoveUntil(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const WishlistsScreen(isOwner: true),
+                      builder: (context) => const DashboardScreen(),
                     ),
                     (route) => false,
                   );

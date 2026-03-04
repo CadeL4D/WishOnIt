@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/category.dart';
@@ -157,25 +158,38 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
                         
                         if (joinCode.isEmpty) return const SizedBox.shrink();
 
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF5D5FEF).withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.group, size: 16, color: Color(0xFF5D5FEF)),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Code: $joinCode',
-                                style: const TextStyle(
-                                  color: Color(0xFF5D5FEF),
-                                  fontWeight: FontWeight.bold,
+                        return GestureDetector(
+                          onTap: () async {
+                            await Clipboard.setData(ClipboardData(text: joinCode));
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Group code copied to clipboard!'),
+                                  duration: Duration(seconds: 2),
                                 ),
-                              ),
-                            ],
+                              );
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF5D5FEF).withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.group, size: 16, color: Color(0xFF5D5FEF)),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Code: $joinCode',
+                                  style: const TextStyle(
+                                    color: Color(0xFF5D5FEF),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         );
                       },
