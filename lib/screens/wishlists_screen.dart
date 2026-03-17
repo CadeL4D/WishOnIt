@@ -77,8 +77,12 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
     // Determine the active pages based on role
     final List<Widget> pages = [
       _buildWishlistsContent(),
-      const MyListScreen(),
     ];
+    
+    final bool hasProfile = _myMemberId != null && _myMemberId!.isNotEmpty;
+    if (hasProfile) {
+      pages.add(const MyListScreen());
+    }
     
     if (widget.isOwner) {
       pages.add(const GroupSettingsScreen());
@@ -94,17 +98,23 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
     );
   }
 
-  Widget _buildBottomNav() {
+  Widget? _buildBottomNav() {
     List<BottomNavigationBarItem> items = [
       const BottomNavigationBarItem(
         icon: Icon(Icons.grid_view_rounded),
         label: 'Wishlists',
       ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.format_list_bulleted),
-        label: 'My List',
-      ),
     ];
+
+    final bool hasProfile = _myMemberId != null && _myMemberId!.isNotEmpty;
+    if (hasProfile) {
+      items.add(
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.format_list_bulleted),
+          label: 'My List',
+        ),
+      );
+    }
 
     if (widget.isOwner) {
       items.add(
@@ -115,6 +125,10 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
       );
     }
 
+    if (items.length < 2) {
+      return null;
+    }
+
     return BottomNavigationBar(
       type: BottomNavigationBarType.fixed,
       backgroundColor: Colors.white,
@@ -122,7 +136,7 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
       showUnselectedLabels: true,
       selectedItemColor: const Color(0xFF5D5FEF),
       unselectedItemColor: Colors.grey,
-      currentIndex: _selectedIndex,
+      currentIndex: _selectedIndex < items.length ? _selectedIndex : 0, // Prevent out of bounds if tabs decrease dynamically
       onTap: (index) {
         setState(() {
           _selectedIndex = index;

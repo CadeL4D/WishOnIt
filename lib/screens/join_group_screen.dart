@@ -96,30 +96,118 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     }
   }
 
-  Future<void> _claimMember(String memberId) async {
-    if (_foundGroupId == null || _currentUserId == null) {
-      // If the user isn't logged in, they can't claim a profile right now (or they can just use this device session anonymously)
-      // For simplicity in this flow, we will link the local session regardless.
-      _completeJoinFlow(_foundGroupId!, memberId);
-      return;
+  // Old claim member process, updated to ask for PIN first
+  Future<void> _loginAsGuest(String memberId, String storedPin) async {
+    // We already checked this when they tapped, but double check
+    if (_foundGroupId == null) return;
+    
+    // Instead of forcing a claim, we just authenticate them locally as this guest
+    if (_currentUserId != null) {
+      // If the user *is* logged in to a Firebase account, we'll link it for convenience
+      try {
+        await _databaseService.claimExistingMember(_foundGroupId!, memberId, _currentUserId!);
+      } catch (e) {
+        // Just log the error, don't stop them from entering the group session
+        print('Error silently linking profile: $e');
+      }
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    _completeJoinFlow(_foundGroupId!, memberId);
+  }
 
-    try {
-      await _databaseService.claimExistingMember(_foundGroupId!, memberId, _currentUserId!);
-      _completeJoinFlow(_foundGroupId!, memberId);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error claiming profile: $e')),
+  Future<void> _showPinDialog(String memberId, String name, String storedPin) async {
+    final TextEditingController pinInputController = TextEditingController();
+    String errorText = '';
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Enter PIN for $name'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Please enter the 4-digit PIN for this profile.'),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: pinInputController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 4,
+                    obscureText: true,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'PIN',
+                      errorText: errorText.isNotEmpty ? errorText : null,
+                      filled: true,
+                      fillColor: const Color(0xFFF6F8FB),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
+                      counterText: '',
+                    ),
+                    onChanged: (val) {
+                      if (errorText.isNotEmpty) {
+                        setDialogState(() => errorText = '');
+                      }
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    if (pinInputController.text == storedPin || storedPin.isEmpty) {
+                      Navigator.pop(context);
+                      _loginAsGuest(memberId, storedPin);
+                    } else {
+                      setDialogState(() {
+                        errorText = 'Incorrect PIN';
+                      });
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5D5FEF),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                  child: const Text('Enter', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          }
         );
-      }
-      setState(() {
-        _isLoading = false;
-      });
+      },
+    );
+  }
+
+  Future<void> _joinAsViewer() async {
+    if (_foundGroupId == null) return;
+    
+    // Save active session data locally, but without a memberId
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('activeGroupId', _foundGroupId!);
+    await prefs.remove('activeMemberId'); // Ensure no member is set
+    await prefs.setBool('isOwner', false);
+
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const WishlistsScreen(isOwner: false),
+        ),
+        (route) => false,
+      );
     }
   }
 
@@ -360,7 +448,7 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
                       ),
                       title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
                       trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                      onTap: _isLoading ? null : () => _claimMember(doc.id),
+                      onTap: _isLoading ? null : () => _showPinDialog(doc.id, name, data['pin'] ?? ''),
                     ),
                   );
                 },
@@ -453,6 +541,25 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
                     style: TextStyle(
                       fontSize: 16,
                       color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: _joinAsViewer,
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    side: const BorderSide(color: Color(0xFF5D5FEF), width: 1.5),
+                  ),
+                  child: const Text(
+                    'View Wishlists Only',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Color(0xFF5D5FEF),
                       fontWeight: FontWeight.bold,
                     ),
                   ),
