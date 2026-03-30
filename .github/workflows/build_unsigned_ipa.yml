@@ -3,7 +3,7 @@ name: Build Unsigned iOS IPA
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Allows manual triggering from the GitHub Actions tab
+  workflow_dispatch:
 
 jobs:
   build:
@@ -22,20 +22,25 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
       - name: Build iOS
-        # Using --no-codesign to prevent requiring an Apple Developer account/certificates during the build
         run: flutter build ios --release --no-codesign
 
       - name: Package to IPA
-        # An IPA is just a zip containing a 'Payload' folder with the '.app' inside
         run: |
           mkdir Payload
-          # The app name defaults to Runner.app in Flutter iOS projects
           mv build/ios/iphoneos/Runner.app Payload/
-          zip -qr app.ipa Payload
+          zip -qr wishonit.ipa Payload
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-unsigned
-          path: app.ipa
+          name: wishonit
+          path: wishonit.ipa
