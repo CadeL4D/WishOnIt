@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -20,6 +22,10 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   ActiveForm _activeForm = ActiveForm.none;
   bool _isLoading = false;
+  bool _showSignInDetails = false;
+  bool _showJoinGroupDetails = false;
+  Timer? _signInRevealTimer;
+  Timer? _joinGroupRevealTimer;
 
   // Controllers for Sign In
   final TextEditingController _emailController = TextEditingController();
@@ -33,6 +39,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _signInRevealTimer?.cancel();
+    _joinGroupRevealTimer?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     _joinCodeController.dispose();
@@ -143,6 +151,33 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _setActiveForm(ActiveForm form) {
+    if (_activeForm == form && (form != ActiveForm.signIn || _showSignInDetails)) {
+      return;
+    }
+
+    _signInRevealTimer?.cancel();
+    _joinGroupRevealTimer?.cancel();
+
+    setState(() {
+      _activeForm = form;
+      _showSignInDetails = false;
+      _showJoinGroupDetails = false;
+    });
+
+    if (form == ActiveForm.signIn) {
+      _signInRevealTimer = Timer(const Duration(milliseconds: 420), () {
+        if (!mounted || _activeForm != ActiveForm.signIn) return;
+        setState(() => _showSignInDetails = true);
+      });
+    } else if (form == ActiveForm.joinGroup) {
+      _joinGroupRevealTimer = Timer(const Duration(milliseconds: 420), () {
+        if (!mounted || _activeForm != ActiveForm.joinGroup) return;
+        setState(() => _showJoinGroupDetails = true);
+      });
+    }
+  }
+
   // --- UI Builders ---
   @override
   Widget build(BuildContext context) {
@@ -195,14 +230,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         duration: const Duration(milliseconds: 500),
                         curve: Curves.fastOutSlowIn,
                         width: signInWidth,
-                        child: _buildMorphingCard(
+                        child: _buildSignInCard(
                           isActive: _activeForm == ActiveForm.signIn,
                           isMinimized: _activeForm == ActiveForm.joinGroup,
-                          title: 'Sign In',
-                          icon: Icons.login_rounded,
-                          color: const Color(0xFF5D5FEF),
-                          onTap: () => setState(() => _activeForm = ActiveForm.signIn),
-                          expandedContent: _buildSignInForm(),
+                          onTap: () => _setActiveForm(ActiveForm.signIn),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -211,15 +242,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         duration: const Duration(milliseconds: 500),
                         curve: Curves.fastOutSlowIn,
                         width: joinWidth,
-                        child: _buildMorphingCard(
+                        child: _buildJoinGroupCard(
                           isActive: _activeForm == ActiveForm.joinGroup,
                           isMinimized: _activeForm == ActiveForm.signIn,
-                          title: 'Code',
-                          fullTitle: 'Enter Code',
-                          icon: Icons.group_add_outlined,
-                          color: const Color(0xFF00C48C),
-                          onTap: () => setState(() => _activeForm = ActiveForm.joinGroup),
-                          expandedContent: _buildJoinGroupForm(),
+                          onTap: () => _setActiveForm(ActiveForm.joinGroup),
                         ),
                       ),
                     ],
@@ -247,7 +273,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ? Padding(
               padding: const EdgeInsets.only(top: 16.0),
               child: FloatingActionButton.small(
-                onPressed: () => setState(() => _activeForm = ActiveForm.none),
+                onPressed: () => _setActiveForm(ActiveForm.none),
                 backgroundColor: Colors.white,
                 elevation: 2,
                 child: const Icon(Icons.arrow_back, color: Colors.black87),
@@ -257,16 +283,142 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildMorphingCard({
+  Widget _buildSignInCard({
     required bool isActive,
     required bool isMinimized,
-    required String title,
-    String? fullTitle,
-    required IconData icon,
-    required Color color,
     required VoidCallback onTap,
-    required Widget expandedContent,
   }) {
+    const color = Color(0xFF5D5FEF);
+
+    return GestureDetector(
+      onTap: isActive ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.fastOutSlowIn,
+        width: double.infinity,
+        padding: isActive
+            ? const EdgeInsets.all(20)
+            : EdgeInsets.symmetric(vertical: 20, horizontal: isMinimized ? 8 : 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(isActive ? 30 : 20),
+          boxShadow: [
+            BoxShadow(
+              color: color.withAlpha((isActive ? 0.2 : 0.15 * 255).toInt()),
+              blurRadius: isActive ? 30 : 20,
+              offset: Offset(0, isActive ? 15 : 10),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.fastOutSlowIn,
+              alignment: Alignment.center,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.fastOutSlowIn,
+                padding: EdgeInsets.symmetric(
+                  horizontal: isActive ? 20 : isMinimized ? 10 : 14,
+                  vertical: isActive ? 16 : isMinimized ? 10 : 14,
+                ),
+                decoration: BoxDecoration(
+                  color: color.withAlpha((0.1 * 255).toInt()),
+                  borderRadius: BorderRadius.circular(isActive ? 22 : 18),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.fastOutSlowIn,
+                      width: isActive ? 44 : isMinimized ? 28 : 36,
+                      height: isActive ? 44 : isMinimized ? 28 : 36,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: isActive
+                            ? [
+                                BoxShadow(
+                                  color: color.withAlpha((0.12 * 255).toInt()),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Icon(
+                        Icons.login_rounded,
+                        size: isActive ? 24 : isMinimized ? 18 : 20,
+                        color: color,
+                      ),
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.fastOutSlowIn,
+                      alignment: Alignment.centerLeft,
+                      child: isMinimized
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: EdgeInsets.only(left: isActive ? 14 : 10),
+                              child: Text(
+                                'Sign In',
+                                style: TextStyle(
+                                  fontSize: isActive ? 24 : 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF1F2937),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(
+                begin: 0,
+                end: isActive && _showSignInDetails ? 1 : 0,
+              ),
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
+              child: _buildSignInForm(showTitle: false),
+              builder: (context, value, child) {
+                return ClipRect(
+                  child: Align(
+                    heightFactor: value,
+                    alignment: Alignment.topCenter,
+                    child: Opacity(
+                      opacity: value,
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 20 * value),
+                        child: IgnorePointer(
+                          ignoring: value < 1,
+                          child: child,
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildJoinGroupCard({
+    required bool isActive,
+    required bool isMinimized,
+    required VoidCallback onTap,
+  }) {
+    const color = Color(0xFF00C48C);
+
     return GestureDetector(
       onTap: isActive ? null : onTap,
       child: AnimatedContainer(
@@ -287,64 +439,121 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ],
         ),
-        child: AnimatedCrossFade(
-          firstChild: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedContainer(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AnimatedAlign(
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.fastOutSlowIn,
+              alignment: Alignment.center,
+              child: AnimatedContainer(
                 duration: const Duration(milliseconds: 500),
                 curve: Curves.fastOutSlowIn,
-                padding: EdgeInsets.all(isMinimized ? 8 : 12),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isActive ? 20 : isMinimized ? 10 : 14,
+                  vertical: isActive ? 16 : isMinimized ? 10 : 14,
+                ),
                 decoration: BoxDecoration(
                   color: color.withAlpha((0.1 * 255).toInt()),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(isActive ? 22 : 18),
                 ),
-                child: Icon(icon, size: isMinimized ? 20 : 28, color: color),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.fastOutSlowIn,
+                      width: isActive ? 44 : isMinimized ? 28 : 36,
+                      height: isActive ? 44 : isMinimized ? 28 : 36,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                        boxShadow: isActive
+                            ? [
+                                BoxShadow(
+                                  color: color.withAlpha((0.12 * 255).toInt()),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 6),
+                                ),
+                              ]
+                            : null,
+                      ),
+                      child: Icon(
+                        Icons.group_add_outlined,
+                        size: isActive ? 24 : isMinimized ? 18 : 20,
+                        color: color,
+                      ),
+                    ),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.fastOutSlowIn,
+                      alignment: Alignment.centerLeft,
+                      child: isMinimized
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: EdgeInsets.only(left: isActive ? 14 : 10),
+                              child: Text(
+                                isActive ? 'Enter Code' : 'Code',
+                                style: TextStyle(
+                                  fontSize: isActive ? 24 : 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF1F2937),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
               ),
-              AnimatedSize(
-                duration: const Duration(milliseconds: 500),
-                curve: Curves.fastOutSlowIn,
-                alignment: Alignment.topCenter,
-                child: isMinimized
-                    ? const SizedBox(width: double.infinity, height: 0)
-                    : Padding(
-                        padding: const EdgeInsets.only(top: 12.0),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            fullTitle ?? title,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
+            ),
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(
+                begin: 0,
+                end: isActive && _showJoinGroupDetails ? 1 : 0,
+              ),
+              duration: const Duration(milliseconds: 320),
+              curve: Curves.easeOutCubic,
+              child: _buildJoinGroupForm(showTitle: false),
+              builder: (context, value, child) {
+                return ClipRect(
+                  child: Align(
+                    heightFactor: value,
+                    alignment: Alignment.topCenter,
+                    child: Opacity(
+                      opacity: value,
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 20 * value),
+                        child: IgnorePointer(
+                          ignoring: value < 1,
+                          child: child,
                         ),
                       ),
-              ),
-            ],
-          ),
-          secondChild: expandedContent,
-          crossFadeState: isActive ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-          duration: const Duration(milliseconds: 500),
-          firstCurve: Curves.easeIn,
-          secondCurve: Curves.easeIn,
-          sizeCurve: Curves.fastOutSlowIn,
-          alignment: Alignment.topCenter,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildSignInForm() {
+  Widget _buildSignInForm({bool showTitle = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          'Sign In',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 20),
+        if (showTitle) ...[
+          const Text(
+            'Sign In',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+        ],
         OutlinedButton(
           onPressed: _isLoading ? null : _signInWithGoogle,
           style: OutlinedButton.styleFrom(
@@ -427,17 +636,19 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildJoinGroupForm() {
+  Widget _buildJoinGroupForm({bool showTitle = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          'Join Group',
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 8),
+        if (showTitle) ...[
+          const Text(
+            'Join Group',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+        ],
         Text(
           'Enter 6-digit code',
           style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
