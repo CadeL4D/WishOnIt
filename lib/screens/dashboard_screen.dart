@@ -36,6 +36,116 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() {
       _userId = user?.uid;
     });
+
+    // Check if this user has a birthday set; if not, prompt them
+    if (user != null) {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final birthday = (userDoc.data()?['birthday'] as String?)?.trim() ?? '';
+      if (birthday.isEmpty && mounted) {
+        _showBirthdayPrompt();
+      }
+    }
+  }
+
+  void _showBirthdayPrompt() {
+    DateTime? selectedDate;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: const Text(
+                'When\'s your birthday?',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'This helps your group see your birthday in the Upcoming section.',
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                  ),
+                  const SizedBox(height: 20),
+                  GestureDetector(
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime(2000, 1, 1),
+                        firstDate: DateTime(1920),
+                        lastDate: DateTime.now(),
+                      );
+                      if (picked != null) {
+                        setDialogState(() => selectedDate = picked);
+                      }
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF6F8FB),
+                        borderRadius: BorderRadius.circular(15),
+                      ),
+                      child: Text(
+                        selectedDate != null
+                            ? '${selectedDate!.month.toString().padLeft(2, '0')}/${selectedDate!.day.toString().padLeft(2, '0')}/${selectedDate!.year}'
+                            : 'Tap to select date',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: selectedDate != null ? Colors.black87 : Colors.grey.shade400,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text('Skip', style: TextStyle(color: Colors.grey.shade500)),
+                ),
+                ElevatedButton(
+                  onPressed: selectedDate == null
+                      ? null
+                      : () async {
+                          final birthday =
+                              '${selectedDate!.month.toString().padLeft(2, '0')}/${selectedDate!.day.toString().padLeft(2, '0')}/${selectedDate!.year}';
+                          await _databaseService.updateUserProfile(
+                            _userId!,
+                            birthday: birthday,
+                          );
+                          await _databaseService.updateBirthdayAcrossGroups(_userId!, birthday);
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Birthday saved!'),
+                                backgroundColor: Color(0xFF00C48C),
+                              ),
+                            );
+                          }
+                        },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF5D5FEF),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                  child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _joinExistingGroup(String groupId, String ownerUid) async {

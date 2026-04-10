@@ -105,6 +105,12 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
         await _databaseService.updateEmojiAcrossGroups(_user!.uid, emoji);
       }
 
+      // Propagate birthday to all group member docs
+      final birthday = _birthdateController.text.trim();
+      if (birthday.isNotEmpty) {
+        await _databaseService.updateBirthdayAcrossGroups(_user!.uid, birthday);
+      }
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

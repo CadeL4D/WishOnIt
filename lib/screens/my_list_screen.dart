@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -54,11 +55,29 @@ class _MyListScreenState extends State<MyListScreen> {
     }
   }
 
+  Future<void> _updateItem(MyListItem item) async {
+    if (_groupId != null && _memberId != null) {
+      await _databaseService.updateWishlistItem(_groupId!, _memberId!, item);
+    }
+  }
+
   void _showAddItemDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) {
         return AddItemDialog(onAdd: _addItem);
+      },
+    );
+  }
+
+  void _showEditItemDialog(BuildContext context, MyListItem item) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AddItemDialog(
+          onAdd: _updateItem,
+          existingItem: item,
+        );
       },
     );
   }
@@ -140,7 +159,9 @@ class _MyListScreenState extends State<MyListScreen> {
                         final domain = item.domain ?? '';
                         final logoUrl = _getLogoUrl(domain);
 
-                        return Card(
+                        return GestureDetector(
+                          onTap: () => _showEditItemDialog(context, item),
+                          child: Card(
                           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           child: ListTile(
                             leading: Container(
@@ -173,6 +194,7 @@ class _MyListScreenState extends State<MyListScreen> {
                               onPressed: () => _deleteItem(item.id),
                             ),
                           ),
+                        ),
                         );
                       },
                     );
@@ -194,8 +216,11 @@ class _MyListScreenState extends State<MyListScreen> {
 
 class AddItemDialog extends StatefulWidget {
   final Function(MyListItem) onAdd;
-  
-  const AddItemDialog({super.key, required this.onAdd});
+  final MyListItem? existingItem;
+
+  const AddItemDialog({super.key, required this.onAdd, this.existingItem});
+
+  bool get isEditing => existingItem != null;
 
   @override
   State<AddItemDialog> createState() => _AddItemDialogState();
@@ -211,6 +236,12 @@ class _AddItemDialogState extends State<AddItemDialog> {
   @override
   void initState() {
     super.initState();
+    if (widget.existingItem != null) {
+      _nameController.text = widget.existingItem!.name;
+      _priceController.text = widget.existingItem!.price.toStringAsFixed(2);
+      _urlController.text = widget.existingItem!.url;
+      _domain = widget.existingItem!.domain ?? '';
+    }
     _urlController.addListener(_onUrlChanged);
   }
 
@@ -350,7 +381,7 @@ class _AddItemDialogState extends State<AddItemDialog> {
                 : const Icon(Icons.link, color: Colors.grey),
           ),
           const SizedBox(width: 16),
-          const Expanded(child: Text('Add Item')),
+          Expanded(child: Text(widget.isEditing ? 'Edit Item' : 'Add Item')),
         ],
       ),
       content: SingleChildScrollView(
@@ -371,9 +402,26 @@ class _AddItemDialogState extends State<AddItemDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _urlController,
-              decoration: const InputDecoration(labelText: 'URL Link'),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _urlController,
+                    decoration: const InputDecoration(labelText: 'URL Link'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.paste, color: Colors.grey),
+                  tooltip: 'Paste',
+                  onPressed: () async {
+                    final data = await Clipboard.getData(Clipboard.kTextPlain);
+                    if (data?.text != null && data!.text!.isNotEmpty) {
+                      _urlController.text = data.text!;
+                    }
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -399,13 +447,14 @@ class _AddItemDialogState extends State<AddItemDialog> {
             final price = double.tryParse(priceText) ?? 0.0;
             
             final newItem = MyListItem(
-              id: const Uuid().v4(),
+              id: widget.existingItem?.id ?? const Uuid().v4(),
               name: name,
               price: price,
               url: urlText,
               domain: _domain.isNotEmpty ? _domain : null,
+              isPurchased: widget.existingItem?.isPurchased ?? false,
             );
-            
+
             widget.onAdd(newItem);
             Navigator.pop(context);
           },
@@ -413,7 +462,7 @@ class _AddItemDialogState extends State<AddItemDialog> {
             backgroundColor: Colors.black,
             foregroundColor: Colors.white,
           ),
-          child: const Text('Add'),
+          child: Text(widget.isEditing ? 'Save' : 'Add'),
         ),
       ],
     );

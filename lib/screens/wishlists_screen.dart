@@ -15,6 +15,28 @@ import 'my_list_screen.dart';
 import 'dashboard_screen.dart';
 import 'login_screen.dart';
 
+class _UpcomingEvent {
+  final String title;
+  final String monthLabel;
+  final String dayLabel;
+  final DateTime nextDate;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final String? memberId;
+  final String? memberName;
+
+  const _UpcomingEvent({
+    required this.title,
+    required this.monthLabel,
+    required this.dayLabel,
+    required this.nextDate,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    this.memberId,
+    this.memberName,
+  });
+}
+
 class WishlistsScreen extends StatefulWidget {
   final bool isOwner;
 
@@ -32,6 +54,20 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
   String? _myMemberId;
   bool _isLoading = true;
   bool _isCodeCopied = false;
+  static const List<String> _monthLabels = [
+    'JAN',
+    'FEB',
+    'MAR',
+    'APR',
+    'MAY',
+    'JUN',
+    'JUL',
+    'AUG',
+    'SEP',
+    'OCT',
+    'NOV',
+    'DEC',
+  ];
 
   Future<void> _submitFeedback(String text, String tag) async {
     const String feedbackUrl = 'https://script.google.com/macros/s/AKfycbyicIcomN9X6qHU7WqDe4DmQ3_rTfwUI0PWYDj3nmv2Q8vSVOwjowGEF2Au3ogplAvkaA/exec';
@@ -526,40 +562,218 @@ class _WishlistsScreenState extends State<WishlistsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-              // Christmas Card (Square with Icon)
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              _buildUpcomingSection(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUpcomingSection() {
+    if (_groupId == null) {
+      return _buildUpcomingList(const []);
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: _databaseService.getGroupMembersStream(_groupId!),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Text('Could not load upcoming events right now.');
+        }
+
+        final docs = snapshot.data?.docs ?? const [];
+        final events = _buildUpcomingEvents(docs);
+        return _buildUpcomingList(events);
+      },
+    );
+  }
+
+  List<_UpcomingEvent> _buildUpcomingEvents(List<QueryDocumentSnapshot> docs) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final events = <_UpcomingEvent>[
+      _createFixedEvent(
+        title: 'Christmas',
+        month: 12,
+        day: 25,
+        today: today,
+        backgroundColor: const Color(0xFFE5F7ED),
+        foregroundColor: const Color(0xFF00C48C),
+      ),
+    ];
+
+    for (final doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+      final name = (data['name'] as String?)?.trim();
+      final birthdate = ((data['birthdate'] as String?)?.trim().isNotEmpty ?? false)
+          ? (data['birthdate'] as String).trim()
+          : (data['birthday'] as String?)?.trim();
+
+      if (name == null || name.isEmpty || birthdate == null || birthdate.isEmpty) {
+        continue;
+      }
+
+      final parts = _parseMonthDay(birthdate);
+      if (parts == null) continue;
+
+      final nextDate = _nextOccurrence(
+        today: today,
+        month: parts.$1,
+        day: parts.$2,
+      );
+
+      events.add(
+        _UpcomingEvent(
+          title: "$name's Birthday",
+          monthLabel: _monthLabels[parts.$1 - 1],
+          dayLabel: parts.$2.toString(),
+          nextDate: nextDate,
+          backgroundColor: const Color(0xFFFFF1E8),
+          foregroundColor: const Color(0xFFFF8A3D),
+          memberId: doc.id,
+          memberName: name,
+        ),
+      );
+    }
+
+    events.sort((a, b) => a.nextDate.compareTo(b.nextDate));
+    return events;
+  }
+
+  _UpcomingEvent _createFixedEvent({
+    required String title,
+    required int month,
+    required int day,
+    required DateTime today,
+    required Color backgroundColor,
+    required Color foregroundColor,
+  }) {
+    return _UpcomingEvent(
+      title: title,
+      monthLabel: _monthLabels[month - 1],
+      dayLabel: day.toString(),
+      nextDate: _nextOccurrence(today: today, month: month, day: day),
+      backgroundColor: backgroundColor,
+      foregroundColor: foregroundColor,
+    );
+  }
+
+  (int, int)? _parseMonthDay(String value) {
+    final normalized = value.trim();
+    final slashParts = normalized.split('/');
+    if (slashParts.length < 2) return null;
+
+    final month = int.tryParse(slashParts[0]);
+    final day = int.tryParse(slashParts[1]);
+    if (month == null || day == null) return null;
+    if (month < 1 || month > 12) return null;
+
+    final maxDay = DateTime(2024, month + 1, 0).day;
+    if (day < 1 || day > maxDay) return null;
+    return (month, day);
+  }
+
+  DateTime _nextOccurrence({
+    required DateTime today,
+    required int month,
+    required int day,
+  }) {
+    var occurrence = _safeDate(today.year, month, day);
+    if (occurrence.isBefore(today)) {
+      occurrence = _safeDate(today.year + 1, month, day);
+    }
+    return occurrence;
+  }
+
+  DateTime _safeDate(int year, int month, int day) {
+    final lastDayOfMonth = DateTime(year, month + 1, 0).day;
+    final safeDay = day > lastDayOfMonth ? lastDayOfMonth : day;
+    return DateTime(year, month, safeDay);
+  }
+
+  Widget _buildUpcomingList(List<_UpcomingEvent> events) {
+    return SizedBox(
+      height: 132,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: events.length,
+        separatorBuilder: (context, index) => const SizedBox(width: 16),
+        itemBuilder: (context, index) => _buildUpcomingCard(events[index]),
+      ),
+    );
+  }
+
+  Widget _buildUpcomingCard(_UpcomingEvent event) {
+    return GestureDetector(
+      onTap: event.memberId != null && _groupId != null
+          ? () {
+              final person = Person(
+                id: event.memberId!,
+                name: event.memberName ?? '',
+                avatarUrl: '',
+                emoji: '',
+                wishlist: [],
+              );
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => PersonWishlistScreen(person: person),
+                ),
+              );
+            }
+          : null,
+      child: SizedBox(
+        width: 92,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              height: 84,
+              width: 84,
+              decoration: BoxDecoration(
+                color: event.backgroundColor,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Container(
-                    height: 80,
-                    width: 80,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE5F7ED), // Light green background
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.park, // Christmas tree-like icon
-                        color: Color(0xFF00C48C),
-                        size: 40,
-                      ),
+                  Text(
+                    event.monthLabel,
+                    style: TextStyle(
+                      color: event.foregroundColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.1,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  const Padding(
-                    padding: EdgeInsets.only(left: 4.0),
-                    child: Text(
-                      'Christmas',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                      ),
+                  const SizedBox(height: 4),
+                  Text(
+                    event.dayLabel,
+                    style: TextStyle(
+                      color: event.foregroundColor,
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                      height: 1,
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.only(left: 4.0),
+              child: Text(
+                event.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

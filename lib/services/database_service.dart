@@ -35,6 +35,48 @@ class DatabaseService {
     await _firestore.collection('users').doc(uid).set(data, SetOptions(merge: true));
   }
 
+  // Propagate the user's birthday to every group member doc they own or have claimed
+  Future<void> updateBirthdayAcrossGroups(String uid, String birthday) async {
+    try {
+      final groupsSnap = await _firestore
+          .collection('groups')
+          .where('memberIds', arrayContains: uid)
+          .get();
+
+      for (final groupDoc in groupsSnap.docs) {
+        final groupId = groupDoc.id;
+        final batch = _firestore.batch();
+        bool batchHasWrites = false;
+
+        // 1. Owner doc — keyed directly by uid
+        final ownerRef = _firestore
+            .collection('groups').doc(groupId)
+            .collection('members').doc(uid);
+        final ownerSnap = await ownerRef.get();
+        if (ownerSnap.exists) {
+          batch.update(ownerRef, {'birthday': birthday});
+          batchHasWrites = true;
+        }
+
+        // 2. Any guest profile this user has claimed
+        final claimedSnap = await _firestore
+            .collection('groups').doc(groupId)
+            .collection('members')
+            .where('claimedByUid', isEqualTo: uid)
+            .get();
+        for (final memberDoc in claimedSnap.docs) {
+          batch.update(memberDoc.reference, {'birthday': birthday});
+          batchHasWrites = true;
+        }
+
+        if (batchHasWrites) await batch.commit();
+      }
+    } catch (e) {
+      print('Error updating birthday across groups: $e');
+      rethrow;
+    }
+  }
+
   // Propagate the user's emoji to every group member doc they own or have claimed
   Future<void> updateEmojiAcrossGroups(String uid, String emoji) async {
     try {
@@ -101,12 +143,17 @@ class DatabaseService {
         'memberIds': [owner.uid], // Array to allow easy querying of what groups a user is in
       });
       
-      // 2. Add the Owner as the first Member in the subcollection
+      // 2. Fetch the owner's birthday from their user profile
+      final userDoc = await _firestore.collection('users').doc(owner.uid).get();
+      final birthday = (userDoc.data()?['birthday'] as String?) ?? '';
+
+      // 3. Add the Owner as the first Member in the subcollection
       await groupRef.collection('members').doc(owner.uid).set({
         'id': owner.uid,
         'name': owner.displayName ?? 'Owner',
         'avatarUrl': owner.photoURL ?? '',
         'emoji': emoji ?? '',
+        'birthday': birthday,
         'isRegisteredOwner': true,
         'joinedAt': FieldValue.serverTimestamp(),
       });
@@ -251,6 +298,21 @@ class DatabaseService {
           .set(item.toJson());
     } catch (e) {
       print('Error adding wishlist item: $e');
+    }
+  }
+
+  Future<void> updateWishlistItem(String groupId, String memberId, MyListItem item) async {
+    try {
+      await _firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('members')
+          .doc(memberId)
+          .collection('wishlist')
+          .doc(item.id)
+          .update(item.toJson());
+    } catch (e) {
+      print('Error updating wishlist item: $e');
     }
   }
 
