@@ -38,6 +38,17 @@ class _PersonWishlistScreenState extends State<PersonWishlistScreen> {
     });
   }
 
+  Future<void> _openItemUrl(String url) async {
+    String finalUrl = url.trim();
+    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+      finalUrl = 'https://$finalUrl';
+    }
+    final uri = Uri.tryParse(finalUrl);
+    if (uri != null) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   String? _getLogoUrl(String domain) {
     const logos = {
       'amazon.com': 'https://upload.wikimedia.org/wikipedia/commons/4/4a/Amazon_icon.svg',
@@ -112,24 +123,23 @@ class _PersonWishlistScreenState extends State<PersonWishlistScreen> {
                           background: Container(
                             alignment: Alignment.centerLeft,
                             padding: const EdgeInsets.symmetric(horizontal: 20),
-                            color: Colors.green,
-                            child: const Icon(Icons.check, color: Colors.white),
+                            color: isPurchased ? Colors.grey : Colors.green,
+                            child: Icon(
+                              isPurchased ? Icons.undo : Icons.check,
+                              color: Colors.white,
+                            ),
                           ),
                           secondaryBackground: Container(
                             alignment: Alignment.centerRight,
                             padding: const EdgeInsets.symmetric(horizontal: 20),
-                            color: Colors.grey,
-                            child: const Icon(Icons.undo, color: Colors.white),
+                            color: Colors.blueAccent,
+                            child: const Icon(Icons.open_in_new, color: Colors.white),
                           ),
                           confirmDismiss: (direction) async {
                             if (direction == DismissDirection.startToEnd) {
-                              if (!isPurchased) {
-                                await _databaseService.updateWishlistItemStatus(_groupId!, widget.person.id, item.id, true);
-                              }
+                              await _databaseService.updateWishlistItemStatus(_groupId!, widget.person.id, item.id, !isPurchased);
                             } else if (direction == DismissDirection.endToStart) {
-                              if (isPurchased) {
-                                await _databaseService.updateWishlistItemStatus(_groupId!, widget.person.id, item.id, false);
-                              }
+                              await _openItemUrl(item.url);
                             }
                             return false; // don't actually dismiss the widget from the list, since stream builder updates it
                           },
@@ -174,16 +184,7 @@ class _PersonWishlistScreenState extends State<PersonWishlistScreen> {
                                   children: [
                                     IconButton(
                                       icon: const Icon(Icons.open_in_new, color: Colors.blueAccent),
-                                      onPressed: () async {
-                                        String finalUrl = item.url.trim();
-                                        if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-                                          finalUrl = 'https://$finalUrl';
-                                        }
-                                        final uri = Uri.tryParse(finalUrl);
-                                        if (uri != null) {
-                                          await launchUrl(uri, mode: LaunchMode.externalApplication);
-                                        }
-                                      },
+                                      onPressed: () => _openItemUrl(item.url),
                                     ),
                                     IconButton(
                                       icon: Icon(
