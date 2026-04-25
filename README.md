@@ -1,4 +1,4 @@
-# wishonit
+# WishedOn
 
 A new Flutter project.
 
