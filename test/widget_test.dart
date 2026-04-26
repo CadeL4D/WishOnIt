@@ -7,7 +7,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:wishonit/main.dart';
+import 'package:wishedon/main.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
@@ -15,7 +15,7 @@ void main() {
     await tester.pumpWidget(const MyApp());
 
     // Verify that our login screen is shown.
-    expect(find.text('Welcome to\nWishOnIt'), findsOneWidget);
+    expect(find.text('Welcome to\nWishedOn'), findsOneWidget);
     expect(find.text('Sign In'), findsWidgets);
     expect(find.text('Code'), findsWidgets);
     expect(find.text('Continue as Guest'), findsNothing);

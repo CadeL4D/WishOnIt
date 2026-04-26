@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter build *)",
+      "Bash(MSYS_NO_PATHCONV=1 flutter build web --base-href \"/\")",
+      "Bash(flutter clean *)"
+    ]
+  }
+}

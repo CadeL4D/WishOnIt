@@ -154,7 +154,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('activeGroupId', groupId);
 
-    print('[WishOnIt] _joinExistingGroup: userId=$_userId ownerUid=$ownerUid groupId=$groupId');
+    print('[WishedOn] _joinExistingGroup: userId=$_userId ownerUid=$ownerUid groupId=$groupId');
 
     String activeMemberId = '';
     
@@ -167,7 +167,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       
       if (ownerDocSnap.exists) {
         // User IS the owner or was added directly with their UID as document ID
-        print('[WishOnIt] Found direct member doc -> activeMemberId=$_userId (owner)');
+        print('[WishedOn] Found direct member doc -> activeMemberId=$_userId (owner)');
         activeMemberId = _userId!;
       } else {
         // Step 2: Search for a guest profile they claimed (must NOT be the owner's profile)
@@ -184,16 +184,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           
           if (!isOwnerDoc) {
             // Valid claimed profile
-            print('[WishOnIt] Found claimed guest profile -> activeMemberId=${doc.id}');
+            print('[WishedOn] Found claimed guest profile -> activeMemberId=${doc.id}');
             activeMemberId = doc.id;
             break;
           } else {
             // Bad state: they've incorrectly claimed the owner's profile. Self-heal.
-            print('[WishOnIt] Removing bad claimedByUid from owner doc: ${doc.id}');
+            print('[WishedOn] Removing bad claimedByUid from owner doc: ${doc.id}');
             try {
               await doc.reference.update({'claimedByUid': FieldValue.delete()});
             } catch (e) {
-              print('[WishOnIt] Error self-healing: $e');
+              print('[WishedOn] Error self-healing: $e');
             }
           }
         }
@@ -203,7 +203,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       print('Error finding member: $e');
     }
 
-    print('[WishOnIt] Final activeMemberId=$activeMemberId isOwner=${_userId == ownerUid}');
+    print('[WishedOn] Final activeMemberId=$activeMemberId isOwner=${_userId == ownerUid}');
 
     await prefs.setString('activeMemberId', activeMemberId);
       if (activeMemberId.isEmpty) {

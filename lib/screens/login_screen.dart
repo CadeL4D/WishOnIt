@@ -192,7 +192,7 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const SizedBox(height: 40),
               const Text(
-                'Welcome to\nWishOnIt',
+                'Welcome to\nWishedOn',
                 style: TextStyle(
                   fontSize: 40,
                   fontWeight: FontWeight.bold,
